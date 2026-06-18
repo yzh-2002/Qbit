@@ -194,6 +194,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ======================== 设置 ========================
 
     val intervalMinutes: StateFlow<Int> = settings.intervalMinutes
+    val themeMode: StateFlow<Int> = settings.themeMode
+
+    fun setThemeMode(mode: Int) {
+        settings.setThemeMode(mode)
+    }
 
     val quietRules: StateFlow<List<QuietRule>> = ruleDao.getAllRules()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

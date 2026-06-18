@@ -16,12 +16,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.liferecorder.BuildConfig
+import com.liferecorder.data.SettingsManager
 import com.liferecorder.data.UpdateChecker
 import com.liferecorder.service.ReminderScheduler
 import com.liferecorder.ui.theme.LifeRecorderTheme
@@ -47,8 +49,15 @@ class MainActivity : ComponentActivity() {
         ReminderScheduler.scheduleNextReminder(this)
 
         setContent {
-            LifeRecorderTheme {
-                val vm: MainViewModel = viewModel()
+            val vm: MainViewModel = viewModel()
+            val themeMode by vm.themeMode.collectAsStateWithLifecycle()
+            val darkTheme = when (themeMode) {
+                SettingsManager.THEME_LIGHT -> false
+                SettingsManager.THEME_DARK -> true
+                else -> isSystemInDarkTheme()
+            }
+
+            LifeRecorderTheme(darkTheme = darkTheme) {
 
                 // 如果从通知点进来，自动弹出输入框
                 if (intent.getBooleanExtra("show_input", false)) {

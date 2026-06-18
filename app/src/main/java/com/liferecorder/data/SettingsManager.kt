@@ -16,7 +16,13 @@ class SettingsManager(context: Context) {
 
     companion object {
         private const val KEY_REMINDER_INTERVAL = "reminder_interval_minutes"
+        private const val KEY_THEME_MODE = "theme_mode"
         const val DEFAULT_INTERVAL = 60 // 默认 60 分钟
+
+        // 主题模式：0=跟随系统, 1=光态（浅色）, 2=暗态（深色）
+        const val THEME_FOLLOW_SYSTEM = 0
+        const val THEME_LIGHT = 1
+        const val THEME_DARK = 2
 
         @Volatile
         private var INSTANCE: SettingsManager? = null
@@ -33,8 +39,18 @@ class SettingsManager(context: Context) {
     )
     val intervalMinutes: StateFlow<Int> = _intervalMinutes.asStateFlow()
 
+    private val _themeMode = MutableStateFlow(
+        prefs.getInt(KEY_THEME_MODE, THEME_FOLLOW_SYSTEM)
+    )
+    val themeMode: StateFlow<Int> = _themeMode.asStateFlow()
+
     fun setIntervalMinutes(minutes: Int) {
         prefs.edit().putInt(KEY_REMINDER_INTERVAL, minutes).apply()
         _intervalMinutes.value = minutes
+    }
+
+    fun setThemeMode(mode: Int) {
+        prefs.edit().putInt(KEY_THEME_MODE, mode).apply()
+        _themeMode.value = mode
     }
 }

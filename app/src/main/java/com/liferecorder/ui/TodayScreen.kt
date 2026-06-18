@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.liferecorder.data.LifeRecord
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -27,9 +29,14 @@ fun TodayScreen(viewModel: MainViewModel) {
     val showDialog by viewModel.showInputDialog.collectAsStateWithLifecycle()
     val interval by viewModel.intervalMinutes.collectAsStateWithLifecycle()
 
+    var editingRecord by remember { mutableStateOf<LifeRecord?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
     val todayText = SimpleDateFormat("yyyy年M月d日 EEEE", Locale.CHINESE).format(Date())
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -50,7 +57,18 @@ fun TodayScreen(viewModel: MainViewModel) {
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { viewModel.openInputDialog() },
+                onClick = {
+                    scope.launch {
+                        val lastEnd = viewModel.getLastRecordEndTime()
+                        val elapsed = System.currentTimeMillis() - lastEnd
+                        if (records.isNotEmpty() && elapsed < 60_000) {
+                            snackbarHostState.currentSnackbarData?.dismiss()
+                            snackbarHostState.showSnackbar("这一刻才刚开始，让子弹再飞一会儿")
+                        } else {
+                            viewModel.openInputDialog()
+                        }
+                    }
+                },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             ) {
@@ -85,16 +103,36 @@ fun TodayScreen(viewModel: MainViewModel) {
             } else {
                 RecordList(
                     records = records,
-                    onDelete = { viewModel.deleteRecord(it) }
+                    onDelete = { viewModel.deleteRecord(it) },
+                    onEdit = { editingRecord = it }
                 )
             }
         }
 
         if (showDialog) {
-            InputDialog(
-                interval = interval,
-                onDismiss = { viewModel.closeInputDialog() },
-                onConfirm = { viewModel.addRecord(it) }
+            // 获取上条记录的结束时间
+            var lastEndTime by remember { mutableStateOf<Long?>(null) }
+            LaunchedEffect(Unit) {
+                lastEndTime = viewModel.getLastRecordEndTime()
+            }
+            lastEndTime?.let { startTime ->
+                InputDialog(
+                    startTime = startTime,
+                    onDismiss = { viewModel.closeInputDialog() },
+                    onConfirm = { content, hourLabel -> viewModel.addRecord(content, hourLabel) }
+                )
+            }
+        }
+
+        // 编辑弹窗
+        editingRecord?.let { record ->
+            EditDialog(
+                record = record,
+                onDismiss = { editingRecord = null },
+                onConfirm = { newContent ->
+                    viewModel.updateRecord(record, newContent)
+                    editingRecord = null
+                }
             )
         }
     }
@@ -139,7 +177,8 @@ private fun EmptyState() {
 @Composable
 private fun RecordList(
     records: List<LifeRecord>,
-    onDelete: (LifeRecord) -> Unit
+    onDelete: (LifeRecord) -> Unit,
+    onEdit: (LifeRecord) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -147,7 +186,11 @@ private fun RecordList(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         items(records, key = { it.id }) { record ->
-            RecordCard(record = record, onDelete = { onDelete(record) })
+            RecordCard(
+                record = record,
+                onDelete = { onDelete(record) },
+                onEdit = { onEdit(record) }
+            )
         }
     }
 }
@@ -155,7 +198,8 @@ private fun RecordList(
 @Composable
 fun RecordCard(
     record: LifeRecord,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onEdit: (() -> Unit)? = null
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -200,6 +244,17 @@ fun RecordCard(
             )
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                if (onEdit != null) {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = "编辑",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
                 IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(32.dp)) {
                     Icon(
                         Icons.Default.Delete,
@@ -234,18 +289,16 @@ fun RecordCard(
 
 @Composable
 private fun InputDialog(
-    interval: Int,
+    startTime: Long,
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
+    onConfirm: (String, String) -> Unit
 ) {
     var text by remember { mutableStateOf("") }
 
-    val cal = Calendar.getInstance()
-    val currentHour = cal.get(Calendar.HOUR_OF_DAY)
-    val currentMin = cal.get(Calendar.MINUTE)
-    val prevMinutes = currentHour * 60 + currentMin - interval
-    val prevH = (if (prevMinutes < 0) 0 else prevMinutes / 60)
-    val timeRange = String.format("%02d:%02d - %02d:%02d", prevH, 0, currentHour, currentMin)
+    val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+    val startLabel = timeFormat.format(Date(startTime))
+    val endLabel = timeFormat.format(Date())
+    val timeRange = "$startLabel - $endLabel"
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -275,7 +328,54 @@ private fun InputDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onConfirm(text) }, enabled = text.isNotBlank()) { Text("保存") }
+            Button(onClick = { onConfirm(text, timeRange) }, enabled = text.isNotBlank()) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
+@Composable
+private fun EditDialog(
+    record: LifeRecord,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var text by remember { mutableStateOf(record.content) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("编辑记录", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        text = record.hourLabel,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("修改记录内容") },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
+                    maxLines = 5,
+                    shape = RoundedCornerShape(8.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(text) },
+                enabled = text.isNotBlank() && text.trim() != record.content
+            ) { Text("保存") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }

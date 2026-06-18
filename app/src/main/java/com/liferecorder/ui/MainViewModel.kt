@@ -33,20 +33,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openInputDialog() { _showInputDialog.value = true }
     fun closeInputDialog() { _showInputDialog.value = false }
 
-    fun addRecord(content: String) {
+    /** 获取上条记录的结束时间（即本条记录的起始时间），没有则返回今天 00:00 */
+    suspend fun getLastRecordEndTime(): Long {
+        val (start, end) = todayRange()
+        val latest = recordDao.getLatestRecordOfDay(start, end)
+        return latest?.timestamp ?: start
+    }
+
+    fun addRecord(content: String, hourLabel: String) {
         if (content.isBlank()) return
         viewModelScope.launch {
             val now = System.currentTimeMillis()
-            val cal = Calendar.getInstance()
-            val currentHour = cal.get(Calendar.HOUR_OF_DAY)
-            val interval = settings.intervalMinutes.value
-            val prevHour = if (interval >= 60) {
-                val hoursBack = interval / 60
-                if (currentHour - hoursBack < 0) 0 else currentHour - hoursBack
-            } else currentHour
-            val hourLabel = String.format("%02d:00 - %02d:00", prevHour, currentHour)
             recordDao.insert(LifeRecord(content = content.trim(), timestamp = now, hourLabel = hourLabel))
             _showInputDialog.value = false
+        }
+    }
+
+    fun updateRecord(record: LifeRecord, newContent: String) {
+        if (newContent.isBlank()) return
+        viewModelScope.launch {
+            recordDao.update(record.copy(content = newContent.trim()))
         }
     }
 

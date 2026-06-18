@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,7 +17,8 @@ fun MainScreen(viewModel: MainViewModel) {
     val tabs = listOf(
         TabItem("今日", Icons.Default.EditNote),
         TabItem("历史", Icons.Default.CalendarMonth),
-        TabItem("设置", Icons.Default.Settings)
+        TabItem("设置", Icons.Default.Settings),
+        TabItem("关于", Icons.Default.Info)
     )
 
     Scaffold(
@@ -42,6 +44,7 @@ fun MainScreen(viewModel: MainViewModel) {
                 0 -> TodayScreen(viewModel)
                 1 -> HistoryScreen(viewModel)
                 2 -> SettingsScreen(viewModel)
+                3 -> AboutScreen()
             }
         }
     }

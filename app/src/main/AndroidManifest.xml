@@ -12,6 +12,14 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 振动权限（闹钟提醒） -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 前台服务权限（Android 9+） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- 全屏通知权限（Android 14+） -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- 前台服务特殊用途类型权限（Android 14+） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 请求忽略电池优化（保障后台提醒可靠性） -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:allowBackup="true"
@@ -42,6 +50,13 @@
             android:theme="@style/Theme.LifeRecorder"
             android:launchMode="singleTop"
             android:excludeFromRecents="true" />
+
+        <!-- 前台闹钟服务 -->
+        <service
+            android:name=".service.AlarmService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
+
 
         <!-- 定时提醒广播接收器 -->
         <receiver

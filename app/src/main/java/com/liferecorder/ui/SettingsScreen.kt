@@ -1,5 +1,11 @@
 package com.liferecorder.ui
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -7,6 +13,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
@@ -14,10 +23,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.liferecorder.data.QuietRule
+import com.liferecorder.data.SettingsManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,10 +36,12 @@ fun SettingsScreen(viewModel: MainViewModel) {
     val interval by viewModel.intervalMinutes.collectAsStateWithLifecycle()
     val rules by viewModel.quietRules.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshingHolidays.collectAsStateWithLifecycle()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
 
     var showIntervalPicker by remember { mutableStateOf(false) }
     var showRuleEditor by remember { mutableStateOf(false) }
     var editingRule by remember { mutableStateOf<QuietRule?>(null) }
+    var showThemePicker by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -48,6 +61,53 @@ fun SettingsScreen(viewModel: MainViewModel) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // ===== 外观设置 =====
+            item {
+                Text(
+                    "外观设置",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showThemePicker = true },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.DarkMode,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("主题模式", fontWeight = FontWeight.Medium)
+                            Text(
+                                themeModeName(themeMode),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            themeModeName(themeMode),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
             // ===== 提醒设置 =====
             item {
                 Text(
@@ -93,6 +153,11 @@ fun SettingsScreen(viewModel: MainViewModel) {
                         )
                     }
                 }
+            }
+
+            // ===== 电池优化白名单 =====
+            item {
+                BatteryOptimizationCard()
             }
 
             // ===== 节假日设置 =====
@@ -219,6 +284,17 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 }
             )
         }
+
+        if (showThemePicker) {
+            ThemePickerDialog(
+                currentMode = themeMode,
+                onDismiss = { showThemePicker = false },
+                onSelect = {
+                    viewModel.setThemeMode(it)
+                    showThemePicker = false
+                }
+            )
+        }
     }
 }
 
@@ -299,46 +375,212 @@ private fun QuietRuleCard(
 }
 
 @Composable
+private fun BatteryOptimizationCard() {
+    val context = LocalContext.current
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    var isIgnoring by remember {
+        mutableStateOf(powerManager.isIgnoringBatteryOptimizations(context.packageName))
+    }
+
+    // 用户从系统设置返回后自动刷新状态
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                isIgnoring = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = if (isIgnoring) CardDefaults.cardColors()
+        else CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                if (isIgnoring) Icons.Default.CheckCircle else Icons.Default.BatteryAlert,
+                contentDescription = null,
+                tint = if (isIgnoring) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("电池优化", fontWeight = FontWeight.Medium)
+                Text(
+                    if (isIgnoring) "已关闭电池优化，提醒更可靠"
+                    else "建议关闭电池优化，避免提醒被系统拦截",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (!isIgnoring) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = Uri.parse("package:${context.packageName}")
+                        }
+                        context.startActivity(intent)
+                        // 延迟刷新状态（用户操作后回到页面会 recompose）
+                        isIgnoring = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("去设置", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun IntervalPickerDialog(
     currentInterval: Int,
     onDismiss: () -> Unit,
     onSelect: (Int) -> Unit
 ) {
-    val options = listOf(
-        1 to "1 分钟（测试）",
-        15 to "15 分钟",
+    val presets = listOf(
+        1 to "1 分钟（仅测试）",
         30 to "30 分钟",
-        45 to "45 分钟",
-        60 to "1 小时",
-        90 to "1.5 小时",
-        120 to "2 小时",
-        180 to "3 小时"
+        60 to "1 小时"
     )
+
+    val units = listOf("分钟", "小时")
+    val unitMultipliers = listOf(1, 60)
+
+    // 自定义输入状态
+    var useCustom by remember { mutableStateOf(
+        currentInterval !in presets.map { it.first }
+    ) }
+    var customNumber by remember { mutableStateOf(
+        when {
+            currentInterval >= 60 && currentInterval % 60 == 0 -> (currentInterval / 60).toString()
+            else -> currentInterval.toString()
+        }
+    ) }
+    var selectedUnitIndex by remember { mutableIntStateOf(
+        when {
+            currentInterval >= 60 && currentInterval % 60 == 0 -> 1
+            else -> 0
+        }
+    ) }
+
+    val customMinutes = (customNumber.toIntOrNull() ?: 0) * unitMultipliers[selectedUnitIndex]
+    val isCustomValid = (customNumber.toIntOrNull() ?: 0) in 1..60
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("选择提醒间隔", fontWeight = FontWeight.Bold) },
         text = {
             Column {
-                options.forEach { (minutes, label) ->
+                // 预设选项
+                presets.forEach { (minutes, label) ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSelect(minutes) }
-                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                            .clickable {
+                                useCustom = false
+                                onSelect(minutes)
+                            }
+                            .padding(vertical = 10.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
-                            selected = currentInterval == minutes,
-                            onClick = { onSelect(minutes) }
+                            selected = !useCustom && currentInterval == minutes,
+                            onClick = {
+                                useCustom = false
+                                onSelect(minutes)
+                            }
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(label, style = MaterialTheme.typography.bodyLarge)
                     }
                 }
+
+                // 自定义选项
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { useCustom = true }
+                        .padding(vertical = 10.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = useCustom,
+                        onClick = { useCustom = true }
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("自定义", style = MaterialTheme.typography.bodyLarge)
+                }
+
+                // 自定义输入区域
+                if (useCustom) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = customNumber,
+                            onValueChange = { input ->
+                                // 只允许输入数字，最多2位
+                                if (input.isEmpty() || (input.all { it.isDigit() } && input.length <= 2)) {
+                                    customNumber = input
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("1-60") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+
+                        // 单位选择
+                        units.forEachIndexed { index, unit ->
+                            FilterChip(
+                                selected = selectedUnitIndex == index,
+                                onClick = { selectedUnitIndex = index },
+                                label = { Text(unit) }
+                            )
+                        }
+                    }
+
+                    if (customNumber.isNotEmpty() && !isCustomValid) {
+                        Text(
+                            "请输入 1-60 之间的数字",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
+            if (useCustom) {
+                Button(
+                    onClick = { onSelect(customMinutes) },
+                    enabled = isCustomValid
+                ) { Text("确定") }
+            }
+        },
+        dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
@@ -532,8 +774,8 @@ private fun formatTime(hour: Int, minute: Int): String {
 
 private fun formatInterval(minutes: Int): String {
     return when {
+        minutes >= 60 && minutes % 60 == 0 -> "${minutes / 60} 小时"
         minutes < 60 -> "${minutes} 分钟"
-        minutes % 60 == 0 -> "${minutes / 60} 小时"
         else -> "${minutes / 60} 小时 ${minutes % 60} 分钟"
     }
 }
@@ -545,4 +787,53 @@ private fun applyModeText(mode: Int): String {
         2 -> "仅周末（含法定节假日）"
         else -> "未知"
     }
+}
+
+private fun themeModeName(mode: Int): String {
+    return when (mode) {
+        SettingsManager.THEME_LIGHT -> "光态"
+        SettingsManager.THEME_DARK -> "暗态"
+        else -> "跟随系统"
+    }
+}
+
+@Composable
+private fun ThemePickerDialog(
+    currentMode: Int,
+    onDismiss: () -> Unit,
+    onSelect: (Int) -> Unit
+) {
+    val options = listOf(
+        SettingsManager.THEME_FOLLOW_SYSTEM to "跟随系统",
+        SettingsManager.THEME_LIGHT to "光态",
+        SettingsManager.THEME_DARK to "暗态"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择主题模式", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                options.forEach { (mode, label) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(mode) }
+                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentMode == mode,
+                            onClick = { onSelect(mode) }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(label, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
 }

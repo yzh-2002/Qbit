@@ -3,14 +3,8 @@ package com.liferecorder.ui
 import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.media.MediaPlayer
-import android.media.RingtoneManager
 import android.os.Build
 import android.os.Bundle
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -28,17 +22,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.liferecorder.service.AlarmService
 import com.liferecorder.ui.theme.LifeRecorderTheme
 import java.util.Calendar
 
 /**
  * 全屏闹钟提醒界面
- * 类似闹钟响铃页面，播放铃声+振动，用户必须点击按钮才能关闭
+ * 铃声和振动由 AlarmService 播放，本 Activity 只负责展示 UI
+ * 用户点击按钮后停止 AlarmService（铃声+振动一并停止）
  */
 class AlarmActivity : ComponentActivity() {
-
-    private var mediaPlayer: MediaPlayer? = null
-    private var vibrator: Vibrator? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,15 +39,12 @@ class AlarmActivity : ComponentActivity() {
         // 允许在锁屏上方显示
         setupLockScreenFlags()
 
-        // 启动铃声和振动
-        startAlarmSound()
-        startVibration()
-
         setContent {
             LifeRecorderTheme {
                 AlarmScreen(
                     onDismiss = {
-                        stopAlarm()
+                        // 停止铃声振动 + 前台服务
+                        AlarmService.stop(this)
                         // 打开主界面并弹出输入框
                         val mainIntent = Intent(this, MainActivity::class.java).apply {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -64,7 +54,7 @@ class AlarmActivity : ComponentActivity() {
                         finish()
                     },
                     onSkip = {
-                        stopAlarm()
+                        AlarmService.stop(this)
                         finish()
                     }
                 )
@@ -89,58 +79,9 @@ class AlarmActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
-    private fun startAlarmSound() {
-        try {
-            val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                setDataSource(this@AlarmActivity, alarmUri)
-                isLooping = true
-                prepare()
-                start()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun startVibration() {
-        vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            vm.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        }
-
-        // 振动模式：等待500ms -> 振动800ms -> 等待500ms -> 振动800ms，循环
-        val pattern = longArrayOf(500, 800, 500, 800)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator?.vibrate(pattern, 0)
-        }
-    }
-
-    private fun stopAlarm() {
-        mediaPlayer?.let {
-            if (it.isPlaying) it.stop()
-            it.release()
-        }
-        mediaPlayer = null
-        vibrator?.cancel()
-        vibrator = null
-    }
-
     override fun onDestroy() {
-        stopAlarm()
+        // 确保 Activity 销毁时也停止服务
+        AlarmService.stop(this)
         super.onDestroy()
     }
 }

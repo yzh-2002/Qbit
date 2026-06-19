@@ -18,7 +18,7 @@ object DataExportImport {
 
     /** 导出数据模型 */
     data class ExportData(
-        @SerializedName("version") val version: Int = 1,
+        @SerializedName("version") val version: Int = 2,
         @SerializedName("exportTime") val exportTime: String,
         @SerializedName("records") val records: List<ExportRecord>,
         @SerializedName("quietRules") val quietRules: List<ExportQuietRule>
@@ -27,6 +27,7 @@ object DataExportImport {
     data class ExportRecord(
         @SerializedName("content") val content: String,
         @SerializedName("timestamp") val timestamp: Long,
+        @SerializedName("startTime") val startTime: Long = 0,
         @SerializedName("hourLabel") val hourLabel: String
     )
 
@@ -49,9 +50,9 @@ object DataExportImport {
         val rules = db.quietRuleDao().getAllRules_export()
 
         val exportData = ExportData(
-            version = 1,
+            version = 2,
             exportTime = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault()).format(Date()),
-            records = records.map { ExportRecord(it.content, it.timestamp, it.hourLabel) },
+            records = records.map { ExportRecord(it.content, it.timestamp, it.startTime, it.hourLabel) },
             quietRules = rules.map {
                 ExportQuietRule(it.name, it.startHour, it.startMinute, it.endHour, it.endMinute, it.applyMode, it.enabled)
             }
@@ -102,6 +103,7 @@ object DataExportImport {
                         LifeRecord(
                             content = record.content,
                             timestamp = record.timestamp,
+                            startTime = record.startTime,
                             hourLabel = record.hourLabel
                         )
                     )

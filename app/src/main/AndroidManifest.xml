@@ -66,6 +66,11 @@
             android:name=".service.ReminderReceiver"
             android:exported="false" />
 
+        <!-- 免打扰结束时自动插入记录 -->
+        <receiver
+            android:name=".service.QuietEndReceiver"
+            android:exported="false" />
+
         <!-- 开机自启动广播接收器 -->
         <receiver
             android:name=".service.BootReceiver"

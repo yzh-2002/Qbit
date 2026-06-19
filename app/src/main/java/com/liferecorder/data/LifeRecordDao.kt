@@ -26,6 +26,10 @@ interface LifeRecordDao {
     @Query("SELECT * FROM life_records WHERE timestamp >= :dayStart AND timestamp < :dayEnd ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLatestRecordOfDay(dayStart: Long, dayEnd: Long): LifeRecord?
 
+    /** 检查某个精确结束时间是否已存在记录（用于避免重复插入免打扰记录） */
+    @Query("SELECT COUNT(*) FROM life_records WHERE startTime = :startTime AND timestamp = :endTime")
+    suspend fun countByTimeRange(startTime: Long, endTime: Long): Int
+
     /** 插入一条记录 */
     @Insert
     suspend fun insert(record: LifeRecord)

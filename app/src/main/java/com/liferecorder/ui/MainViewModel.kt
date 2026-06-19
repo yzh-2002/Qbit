@@ -41,19 +41,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return latest?.timestamp ?: start
     }
 
-    fun addRecord(content: String, hourLabel: String) {
+    fun addRecord(content: String, startTime: Long, endTime: Long) {
         if (content.isBlank()) return
         viewModelScope.launch {
-            val now = System.currentTimeMillis()
-            recordDao.insert(LifeRecord(content = content.trim(), timestamp = now, hourLabel = hourLabel))
+            val timeFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            val hourLabel = "${timeFormat.format(Date(startTime))} - ${timeFormat.format(Date(endTime))}"
+            recordDao.insert(LifeRecord(
+                content = content.trim(),
+                timestamp = endTime,
+                startTime = startTime,
+                hourLabel = hourLabel
+            ))
             _showInputDialog.value = false
         }
     }
 
-    fun updateRecord(record: LifeRecord, newContent: String) {
+    fun updateRecord(record: LifeRecord, newContent: String, newStartTime: Long? = null, newEndTime: Long? = null) {
         if (newContent.isBlank()) return
         viewModelScope.launch {
-            recordDao.update(record.copy(content = newContent.trim()))
+            val startTime = newStartTime ?: record.startTime
+            val endTime = newEndTime ?: record.timestamp
+            val timeFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            val hourLabel = "${timeFormat.format(Date(startTime))} - ${timeFormat.format(Date(endTime))}"
+            recordDao.update(record.copy(
+                content = newContent.trim(),
+                startTime = startTime,
+                timestamp = endTime,
+                hourLabel = hourLabel
+            ))
         }
     }
 

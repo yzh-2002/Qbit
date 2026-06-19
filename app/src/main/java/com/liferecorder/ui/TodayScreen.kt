@@ -117,20 +117,35 @@ fun TodayScreen(viewModel: MainViewModel) {
             }
             lastEndTime?.let { startTime ->
                 InputDialog(
-                    startTime = startTime,
+                    defaultStartTime = startTime,
+                    defaultEndTime = System.currentTimeMillis(),
+                    minStartTime = startTime,
                     onDismiss = { viewModel.closeInputDialog() },
-                    onConfirm = { content, hourLabel -> viewModel.addRecord(content, hourLabel) }
+                    onConfirm = { content, start, end -> viewModel.addRecord(content, start, end) }
                 )
             }
         }
 
         // 编辑弹窗
         editingRecord?.let { record ->
+            // 计算时间约束：前一条记录的结束时间和后一条记录的起始时间
+            val sortedRecords = records.sortedBy { it.timestamp }
+            val idx = sortedRecords.indexOfFirst { it.id == record.id }
+            val minStart = if (idx > 0) sortedRecords[idx - 1].timestamp else {
+                Calendar.getInstance().apply {
+                    set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                }.timeInMillis
+            }
+            val maxEnd = if (idx < sortedRecords.size - 1) sortedRecords[idx + 1].startTime else System.currentTimeMillis()
+
             EditDialog(
                 record = record,
+                minStartTime = minStart,
+                maxEndTime = maxEnd,
                 onDismiss = { editingRecord = null },
-                onConfirm = { newContent ->
-                    viewModel.updateRecord(record, newContent)
+                onConfirm = { newContent, newStart, newEnd ->
+                    viewModel.updateRecord(record, newContent, newStart, newEnd)
                     editingRecord = null
                 }
             )
@@ -287,33 +302,44 @@ fun RecordCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InputDialog(
-    startTime: Long,
+    defaultStartTime: Long,
+    defaultEndTime: Long,
+    minStartTime: Long,
     onDismiss: () -> Unit,
-    onConfirm: (String, String) -> Unit
+    onConfirm: (String, Long, Long) -> Unit
 ) {
     var text by remember { mutableStateOf("") }
+    var startTime by remember { mutableStateOf(defaultStartTime) }
+    var endTime by remember { mutableStateOf(defaultEndTime) }
+    var showStartPicker by remember { mutableStateOf(false) }
+    var showEndPicker by remember { mutableStateOf(false) }
 
     val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-    val startLabel = timeFormat.format(Date(startTime))
-    val endLabel = timeFormat.format(Date())
-    val timeRange = "$startLabel - $endLabel"
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("记录这段时间", fontWeight = FontWeight.Bold) },
         text = {
             Column {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer
+                // 可点击编辑的时间段
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    TimeChip(
+                        label = timeFormat.format(Date(startTime)),
+                        onClick = { showStartPicker = true }
+                    )
                     Text(
-                        text = timeRange,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        " - ",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    TimeChip(
+                        label = timeFormat.format(Date(endTime)),
+                        onClick = { showEndPicker = true }
                     )
                 }
                 Spacer(modifier = Modifier.height(16.dp))
@@ -328,7 +354,105 @@ private fun InputDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onConfirm(text, timeRange) }, enabled = text.isNotBlank()) { Text("保存") }
+            Button(
+                onClick = { onConfirm(text, startTime, endTime) },
+                enabled = text.isNotBlank() && startTime < endTime
+            ) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+
+    // 起始时间选择器
+    if (showStartPicker) {
+        val cal = Calendar.getInstance().apply { timeInMillis = startTime }
+        val pickerState = rememberTimePickerState(
+            initialHour = cal.get(Calendar.HOUR_OF_DAY),
+            initialMinute = cal.get(Calendar.MINUTE),
+            is24Hour = true
+        )
+        TimePickerDialog(
+            title = "选择起始时间",
+            onDismiss = { showStartPicker = false },
+            onConfirm = {
+                val newStart = Calendar.getInstance().apply {
+                    timeInMillis = startTime
+                    set(Calendar.HOUR_OF_DAY, pickerState.hour)
+                    set(Calendar.MINUTE, pickerState.minute)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }.timeInMillis
+                // 起始时间不能早于上条记录结束时间
+                if (newStart >= minStartTime && newStart < endTime) {
+                    startTime = newStart
+                }
+                showStartPicker = false
+            },
+            content = { TimePicker(state = pickerState) }
+        )
+    }
+
+    // 结束时间选择器
+    if (showEndPicker) {
+        val cal = Calendar.getInstance().apply { timeInMillis = endTime }
+        val pickerState = rememberTimePickerState(
+            initialHour = cal.get(Calendar.HOUR_OF_DAY),
+            initialMinute = cal.get(Calendar.MINUTE),
+            is24Hour = true
+        )
+        TimePickerDialog(
+            title = "选择结束时间",
+            onDismiss = { showEndPicker = false },
+            onConfirm = {
+                val newEnd = Calendar.getInstance().apply {
+                    timeInMillis = endTime
+                    set(Calendar.HOUR_OF_DAY, pickerState.hour)
+                    set(Calendar.MINUTE, pickerState.minute)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }.timeInMillis
+                // 结束时间必须晚于起始时间，且不能超过当前时间
+                if (newEnd > startTime && newEnd <= System.currentTimeMillis()) {
+                    endTime = newEnd
+                }
+                showEndPicker = false
+            },
+            content = { TimePicker(state = pickerState) }
+        )
+    }
+}
+
+@Composable
+private fun TimeChip(label: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.primaryContainer
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun TimePickerDialog(
+    title: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, fontWeight = FontWeight.Bold) },
+        text = { content() },
+        confirmButton = {
+            Button(onClick = onConfirm) { Text("确定") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
@@ -336,28 +460,41 @@ private fun InputDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditDialog(
     record: LifeRecord,
+    minStartTime: Long,
+    maxEndTime: Long,
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
+    onConfirm: (String, Long, Long) -> Unit
 ) {
     var text by remember { mutableStateOf(record.content) }
+    var startTime by remember { mutableStateOf(record.startTime) }
+    var endTime by remember { mutableStateOf(record.timestamp) }
+    var showStartPicker by remember { mutableStateOf(false) }
+    var showEndPicker by remember { mutableStateOf(false) }
+
+    val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("编辑记录", fontWeight = FontWeight.Bold) },
         text = {
             Column {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TimeChip(
+                        label = timeFormat.format(Date(startTime)),
+                        onClick = { showStartPicker = true }
+                    )
                     Text(
-                        text = record.hourLabel,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        " - ",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    TimeChip(
+                        label = timeFormat.format(Date(endTime)),
+                        onClick = { showEndPicker = true }
                     )
                 }
                 Spacer(modifier = Modifier.height(16.dp))
@@ -373,12 +510,66 @@ private fun EditDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(text) },
-                enabled = text.isNotBlank() && text.trim() != record.content
+                onClick = { onConfirm(text, startTime, endTime) },
+                enabled = text.isNotBlank() && startTime < endTime
             ) { Text("保存") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
+
+    if (showStartPicker) {
+        val cal = Calendar.getInstance().apply { timeInMillis = startTime }
+        val pickerState = rememberTimePickerState(
+            initialHour = cal.get(Calendar.HOUR_OF_DAY),
+            initialMinute = cal.get(Calendar.MINUTE),
+            is24Hour = true
+        )
+        TimePickerDialog(
+            title = "选择起始时间",
+            onDismiss = { showStartPicker = false },
+            onConfirm = {
+                val newStart = Calendar.getInstance().apply {
+                    timeInMillis = startTime
+                    set(Calendar.HOUR_OF_DAY, pickerState.hour)
+                    set(Calendar.MINUTE, pickerState.minute)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }.timeInMillis
+                if (newStart >= minStartTime && newStart < endTime) {
+                    startTime = newStart
+                }
+                showStartPicker = false
+            },
+            content = { TimePicker(state = pickerState) }
+        )
+    }
+
+    if (showEndPicker) {
+        val cal = Calendar.getInstance().apply { timeInMillis = endTime }
+        val pickerState = rememberTimePickerState(
+            initialHour = cal.get(Calendar.HOUR_OF_DAY),
+            initialMinute = cal.get(Calendar.MINUTE),
+            is24Hour = true
+        )
+        TimePickerDialog(
+            title = "选择结束时间",
+            onDismiss = { showEndPicker = false },
+            onConfirm = {
+                val newEnd = Calendar.getInstance().apply {
+                    timeInMillis = endTime
+                    set(Calendar.HOUR_OF_DAY, pickerState.hour)
+                    set(Calendar.MINUTE, pickerState.minute)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }.timeInMillis
+                if (newEnd > startTime && newEnd <= maxEndTime) {
+                    endTime = newEnd
+                }
+                showEndPicker = false
+            },
+            content = { TimePicker(state = pickerState) }
+        )
+    }
 }

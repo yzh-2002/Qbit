@@ -19,6 +19,7 @@ import java.util.Locale
 object ReminderScheduler {
 
     private const val REQUEST_CODE = 2001
+    private const val QUIET_END_REQUEST_CODE_BASE = 3000
 
     /** 设置下一次提醒 */
     fun scheduleNextReminder(context: Context) {
@@ -113,6 +114,10 @@ object ReminderScheduler {
             ) {
                 current.add(Calendar.DAY_OF_MONTH, 1)
             }
+
+            // 在免打扰结束时刻注册一个闹钟，用于自动插入记录
+            scheduleQuietEndAlarm(context, matchedRule, current.timeInMillis)
+
             // 从免打扰结束时间对齐到下一个间隔整数倍
             val totalMinutes = current.get(Calendar.HOUR_OF_DAY) * 60 + current.get(Calendar.MINUTE)
             val nextAligned = ((totalMinutes + intervalMinutes - 1) / intervalMinutes) * intervalMinutes
@@ -126,6 +131,42 @@ object ReminderScheduler {
             }
         }
         return current.timeInMillis
+    }
+
+    /**
+     * 在免打扰结束时刻注册一次性闹钟，触发 QuietEndReceiver 自动插入记录。
+     * 使用规则 id 作为 requestCode 的一部分，确保每条规则有独立的 PendingIntent。
+     */
+    private fun scheduleQuietEndAlarm(context: Context, rule: QuietRule, endTimeMillis: Long) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, QuietEndReceiver::class.java).apply {
+            putExtra(QuietEndReceiver.EXTRA_RULE_NAME, rule.name)
+            putExtra(QuietEndReceiver.EXTRA_START_HOUR, rule.startHour)
+            putExtra(QuietEndReceiver.EXTRA_START_MINUTE, rule.startMinute)
+            putExtra(QuietEndReceiver.EXTRA_END_HOUR, rule.endHour)
+            putExtra(QuietEndReceiver.EXTRA_END_MINUTE, rule.endMinute)
+        }
+        val requestCode = QUIET_END_REQUEST_CODE_BASE + rule.id.toInt()
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (alarmManager.canScheduleExactAlarms()) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP, endTimeMillis, pendingIntent
+                )
+            } else {
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP, endTimeMillis, pendingIntent
+                )
+            }
+        } else {
+            alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP, endTimeMillis, pendingIntent
+            )
+        }
     }
 
     private fun findMatchingRule(context: Context, time: Calendar, rules: List<QuietRule>): QuietRule? {

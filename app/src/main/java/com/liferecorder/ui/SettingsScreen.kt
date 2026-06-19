@@ -1,11 +1,14 @@
 package com.liferecorder.ui
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +20,8 @@ import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.*
@@ -37,11 +42,27 @@ fun SettingsScreen(viewModel: MainViewModel) {
     val rules by viewModel.quietRules.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshingHolidays.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val exportResult by viewModel.exportResult.collectAsStateWithLifecycle()
+    val importResult by viewModel.importResult.collectAsStateWithLifecycle()
 
     var showIntervalPicker by remember { mutableStateOf(false) }
     var showRuleEditor by remember { mutableStateOf(false) }
     var editingRule by remember { mutableStateOf<QuietRule?>(null) }
     var showThemePicker by remember { mutableStateOf(false) }
+
+    // SAF 文件选择器：导出
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let { viewModel.exportData(it) }
+    }
+
+    // SAF 文件选择器：导入
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { viewModel.importData(it) }
+    }
 
     Scaffold(
         topBar = {
@@ -256,6 +277,79 @@ fun SettingsScreen(viewModel: MainViewModel) {
                     onDelete = { viewModel.deleteQuietRule(rule) }
                 )
             }
+
+            // ===== 数据管理 =====
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "数据管理",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { exportLauncher.launch(viewModel.getExportFileName()) },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.FileUpload,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("导出数据", fontWeight = FontWeight.Medium)
+                            Text(
+                                "将记录和规则导出为 JSON 文件",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { importLauncher.launch(arrayOf("application/json")) },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.FileDownload,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("导入数据", fontWeight = FontWeight.Medium)
+                            Text(
+                                "从 JSON 备份文件恢复数据",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // 弹窗
@@ -292,6 +386,30 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 onSelect = {
                     viewModel.setThemeMode(it)
                     showThemePicker = false
+                }
+            )
+        }
+
+        // 导出结果提示
+        exportResult?.let { msg ->
+            AlertDialog(
+                onDismissRequest = { viewModel.clearExportResult() },
+                title = { Text("导出数据") },
+                text = { Text(msg) },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.clearExportResult() }) { Text("确定") }
+                }
+            )
+        }
+
+        // 导入结果提示
+        importResult?.let { msg ->
+            AlertDialog(
+                onDismissRequest = { viewModel.clearImportResult() },
+                title = { Text("导入数据") },
+                text = { Text(msg) },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.clearImportResult() }) { Text("确定") }
                 }
             )
         }

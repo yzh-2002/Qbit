@@ -1,5 +1,6 @@
 package com.liferecorder.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -31,6 +32,11 @@ import java.util.*
 @Composable
 fun HistoryScreen(viewModel: MainViewModel) {
     val selectedDate by viewModel.selectedHistoryDate.collectAsStateWithLifecycle()
+
+    // 在详情页时，拦截返回键，返回到日历页面而非退出应用
+    BackHandler(enabled = selectedDate != null) {
+        viewModel.clearSelectedDate()
+    }
 
     if (selectedDate != null) {
         DayDetailScreen(viewModel, selectedDate!!)

@@ -30,6 +30,10 @@ interface LifeRecordDao {
     @Insert
     suspend fun insert(record: LifeRecord)
 
+    /** 获取所有记录（用于导出） */
+    @Query("SELECT * FROM life_records ORDER BY timestamp ASC")
+    suspend fun getAllRecords(): List<LifeRecord>
+
     /** 删除一条记录 */
     @Delete
     suspend fun delete(record: LifeRecord)

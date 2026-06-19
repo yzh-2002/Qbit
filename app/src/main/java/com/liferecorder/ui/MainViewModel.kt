@@ -1,6 +1,7 @@
 package com.liferecorder.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.liferecorder.data.*
@@ -264,6 +265,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ReminderScheduler.cancelReminder(app)
         ReminderScheduler.scheduleNextReminder(app)
     }
+
+    // ======================== 数据导入导出 ========================
+
+    private val _exportResult = MutableStateFlow<String?>(null)
+    val exportResult: StateFlow<String?> = _exportResult.asStateFlow()
+
+    private val _importResult = MutableStateFlow<String?>(null)
+    val importResult: StateFlow<String?> = _importResult.asStateFlow()
+
+    fun exportData(uri: Uri) {
+        viewModelScope.launch {
+            val result = DataExportImport.exportToUri(getApplication(), uri)
+            result.onSuccess { count ->
+                _exportResult.value = "导出成功！共导出 $count 条记录"
+            }.onFailure { e ->
+                _exportResult.value = "导出失败：${e.message}"
+            }
+        }
+    }
+
+    fun importData(uri: Uri) {
+        viewModelScope.launch {
+            val result = DataExportImport.importFromUri(getApplication(), uri)
+            result.onSuccess { importResult ->
+                val msg = buildString {
+                    append("导入完成！")
+                    append("新增 ${importResult.importedRecords} 条记录")
+                    if (importResult.importedRules > 0) {
+                        append("、${importResult.importedRules} 条规则")
+                    }
+                    if (importResult.skippedRecords > 0 || importResult.skippedRules > 0) {
+                        append("（跳过 ${importResult.skippedRecords} 条重复记录")
+                        if (importResult.skippedRules > 0) {
+                            append("、${importResult.skippedRules} 条重复规则")
+                        }
+                        append("）")
+                    }
+                }
+                _importResult.value = msg
+            }.onFailure { e ->
+                _importResult.value = "导入失败：${e.message}"
+            }
+        }
+    }
+
+    fun clearExportResult() { _exportResult.value = null }
+    fun clearImportResult() { _importResult.value = null }
+
+    fun getExportFileName(): String = DataExportImport.generateFileName()
 
     // ======================== 工具方法 ========================
 

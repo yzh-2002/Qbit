@@ -12,6 +12,10 @@ interface QuietRuleDao {
     @Query("SELECT * FROM quiet_rules WHERE enabled = 1")
     suspend fun getEnabledRules(): List<QuietRule>
 
+    /** 获取所有规则（用于导出） */
+    @Query("SELECT * FROM quiet_rules ORDER BY id ASC")
+    suspend fun getAllRules_export(): List<QuietRule>
+
     @Insert
     suspend fun insert(rule: QuietRule)
 

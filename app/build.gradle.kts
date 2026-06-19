@@ -5,6 +5,35 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+// 从 Git Tag 自动生成版本号
+// tag 格式：v0.3.0 → versionName = "0.3.0", versionCode = 300
+fun getVersionName(): String {
+    return try {
+        val process = ProcessBuilder("git", "describe", "--tags", "--abbrev=0")
+            .directory(projectDir)
+            .redirectErrorStream(true)
+            .start()
+        val tag = process.inputStream.bufferedReader().readText().trim()
+        process.waitFor()
+        tag.removePrefix("v").ifEmpty { "0.1.0" }
+    } catch (e: Exception) {
+        "0.1.0"
+    }
+}
+
+fun getVersionCode(): Int {
+    val versionName = getVersionName()
+    val parts = versionName.split(".")
+    return try {
+        val major = parts.getOrNull(0)?.toInt() ?: 0
+        val minor = parts.getOrNull(1)?.toInt() ?: 0
+        val patch = parts.getOrNull(2)?.toInt() ?: 0
+        major * 10000 + minor * 100 + patch
+    } catch (e: Exception) {
+        1
+    }
+}
+
 android {
     namespace = "com.liferecorder"
     compileSdk = 35
@@ -13,8 +42,8 @@ android {
         applicationId = "com.liferecorder"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = getVersionCode()
+        versionName = getVersionName()
     }
 
     signingConfigs {

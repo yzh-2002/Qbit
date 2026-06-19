@@ -9,13 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
-import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.Build
 import android.os.IBinder
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import com.liferecorder.R
 import com.liferecorder.ui.AlarmActivity
@@ -29,11 +25,9 @@ import com.liferecorder.ui.AlarmActivity
 class AlarmService : Service() {
 
     companion object {
-        const val CHANNEL_ID = "qbit_alarm_channel"
+        // 使用新 Channel ID，避免旧 Channel 缓存的静音设置
+        const val CHANNEL_ID = "qbit_alarm_channel_v2"
         const val NOTIFICATION_ID = 3001
-
-        private var mediaPlayer: MediaPlayer? = null
-        private var vibrator: Vibrator? = null
 
         fun start(context: Context) {
             val intent = Intent(context, AlarmService::class.java)
@@ -45,21 +39,8 @@ class AlarmService : Service() {
         }
 
         fun stop(context: Context) {
-            // 先停止铃声和振动
-            stopAlarmSound()
-            // 再停止服务
             val intent = Intent(context, AlarmService::class.java)
             context.stopService(intent)
-        }
-
-        private fun stopAlarmSound() {
-            mediaPlayer?.let {
-                if (it.isPlaying) it.stop()
-                it.release()
-            }
-            mediaPlayer = null
-            vibrator?.cancel()
-            vibrator = null
         }
     }
 
@@ -77,60 +58,27 @@ class AlarmService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-
-        // 服务启动后立即播放铃声和振动
-        startAlarmSound()
-        startVibration()
-
+        // 铃声和振动由通知 Channel 自动处理，无需手动播放
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
-        stopAlarmSound()
         super.onDestroy()
-    }
-
-    private fun startAlarmSound() {
-        try {
-            val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                setDataSource(this@AlarmService, alarmUri)
-                isLooping = true
-                prepare()
-                start()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun startVibration() {
-        vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            vm.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        }
-
-        val pattern = longArrayOf(500, 800, 500, 800)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator?.vibrate(pattern, 0)
-        }
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // TODO: 后续版本（用户基本升级后）移除此行旧 Channel 清理代码
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.deleteNotificationChannel("qbit_alarm_channel")
+
+            val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "记录提醒",
@@ -139,9 +87,10 @@ class AlarmService : Service() {
                 description = "Qbit 定时记录提醒"
                 setBypassDnd(true)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-                setSound(null, null) // 铃声由服务自行播放
+                setSound(alarmUri, audioAttributes)
+                enableVibration(true)
+                vibrationPattern = longArrayOf(500, 800, 500, 800)
             }
-            val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
         }
     }

@@ -174,6 +174,12 @@ fun SettingsScreen(viewModel: MainViewModel) {
                         )
                     }
                 }
+                Text(
+                    "提醒不会从当前时刻开始计算，而是固定在每天 ${getAlignExample(interval)} 等时间点触发",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                )
             }
 
             // ===== 电池优化白名单 =====
@@ -896,6 +902,21 @@ private fun formatInterval(minutes: Int): String {
         minutes < 60 -> "${minutes} 分钟"
         else -> "${minutes / 60} 小时 ${minutes % 60} 分钟"
     }
+}
+
+private fun getAlignExample(intervalMinutes: Int): String {
+    // 生成前几个对齐时间点作为示例
+    val examples = mutableListOf<String>()
+    var totalMinutes = 0
+    while (examples.size < 3 && totalMinutes < 1440) {
+        totalMinutes += intervalMinutes
+        val h = totalMinutes / 60
+        val m = totalMinutes % 60
+        if (h < 24) {
+            examples.add(String.format("%d:%02d", h, m))
+        }
+    }
+    return examples.joinToString("、")
 }
 
 private fun applyModeText(mode: Int): String {

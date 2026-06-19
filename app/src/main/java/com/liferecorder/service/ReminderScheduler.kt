@@ -62,8 +62,8 @@ object ReminderScheduler {
 
     /**
      * 计算下一次提醒时间：
-     * 从当前时间往后推 intervalMinutes 分钟，如果落在免打扰时段内，
-     * 则跳到该时段结束时间
+     * 对齐到间隔的整数倍分钟（以每小时0分为基准），如果落在免打扰时段内，
+     * 则跳到该时段结束时间后的下一个对齐点
      */
     private fun calculateNextReminderTime(context: Context, intervalMinutes: Int): Long {
         val rules = runBlocking {
@@ -75,15 +75,27 @@ object ReminderScheduler {
         }
 
         val candidate = Calendar.getInstance().apply {
-            add(Calendar.MINUTE, intervalMinutes)
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
+            // 计算当天从0:00开始的总分钟数
+            val totalMinutes = get(Calendar.HOUR_OF_DAY) * 60 + get(Calendar.MINUTE)
+            // 找到下一个对齐点：大于当前分钟的最小整数倍
+            val nextAligned = (totalMinutes / intervalMinutes + 1) * intervalMinutes
+            set(Calendar.HOUR_OF_DAY, nextAligned / 60)
+            set(Calendar.MINUTE, nextAligned % 60)
+            // 如果超过24小时（1440分钟），进入第二天
+            if (nextAligned >= 1440) {
+                set(Calendar.HOUR_OF_DAY, (nextAligned - 1440) / 60)
+                set(Calendar.MINUTE, (nextAligned - 1440) % 60)
+                add(Calendar.DAY_OF_MONTH, 1)
+            }
         }
 
         return skipQuietPeriods(context, candidate, rules)
     }
 
     private fun skipQuietPeriods(context: Context, time: Calendar, rules: List<QuietRule>): Long {
+        val intervalMinutes = SettingsManager.getInstance(context).intervalMinutes.value
         var current = time.clone() as Calendar
         // 最多循环几次防止无限循环
         repeat(10) {
@@ -100,6 +112,17 @@ object ReminderScheduler {
                 (matchedRule.endHour == matchedRule.startHour && matchedRule.endMinute <= matchedRule.startMinute)
             ) {
                 current.add(Calendar.DAY_OF_MONTH, 1)
+            }
+            // 从免打扰结束时间对齐到下一个间隔整数倍
+            val totalMinutes = current.get(Calendar.HOUR_OF_DAY) * 60 + current.get(Calendar.MINUTE)
+            val nextAligned = ((totalMinutes + intervalMinutes - 1) / intervalMinutes) * intervalMinutes
+            if (nextAligned >= 1440) {
+                current.set(Calendar.HOUR_OF_DAY, (nextAligned - 1440) / 60)
+                current.set(Calendar.MINUTE, (nextAligned - 1440) % 60)
+                current.add(Calendar.DAY_OF_MONTH, 1)
+            } else {
+                current.set(Calendar.HOUR_OF_DAY, nextAligned / 60)
+                current.set(Calendar.MINUTE, nextAligned % 60)
             }
         }
         return current.timeInMillis

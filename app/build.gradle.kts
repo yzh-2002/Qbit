@@ -18,9 +18,13 @@ android {
     }
 
     signingConfigs {
-        // CI 构建时使用 debug 签名，方便直接安装测试
-        // 正式发布到 Google Play 时请替换为正式签名配置
-        getByName("debug") {}
+        // 统一使用项目内的 debug keystore，保证 CI 和本地签名一致
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {

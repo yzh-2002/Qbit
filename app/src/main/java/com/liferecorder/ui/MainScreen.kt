@@ -5,18 +5,22 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun MainScreen(viewModel: MainViewModel) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    val chatViewModel: ChatViewModel = viewModel()
 
     val tabs = listOf(
         TabItem("今日", Icons.Default.EditNote),
         TabItem("历史", Icons.Default.CalendarMonth),
+        TabItem("AI", Icons.Default.Psychology),
         TabItem("设置", Icons.Default.Settings),
         TabItem("关于", Icons.Default.Info)
     )
@@ -43,8 +47,9 @@ fun MainScreen(viewModel: MainViewModel) {
             when (selectedTab) {
                 0 -> TodayScreen(viewModel)
                 1 -> HistoryScreen(viewModel)
-                2 -> SettingsScreen(viewModel)
-                3 -> AboutScreen()
+                2 -> ChatScreen(chatViewModel)
+                3 -> SettingsScreen(viewModel)
+                4 -> AboutScreen()
             }
         }
     }

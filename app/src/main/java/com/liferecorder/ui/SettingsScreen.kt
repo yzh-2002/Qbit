@@ -284,6 +284,21 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 )
             }
 
+            // ===== AI 配置 =====
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "AI 配置",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            item {
+                AiConfigCard()
+            }
+
             // ===== 数据管理 =====
             item {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -933,6 +948,84 @@ private fun themeModeName(mode: Int): String {
         SettingsManager.THEME_LIGHT -> "光态"
         SettingsManager.THEME_DARK -> "暗态"
         else -> "跟随系统"
+    }
+}
+
+@Composable
+private fun AiConfigCard() {
+    val context = LocalContext.current
+    val settings = remember { SettingsManager.getInstance(context) }
+    var baseUrl by remember { mutableStateOf(settings.aiBaseUrl.value) }
+    var apiKey by remember { mutableStateOf(settings.aiApiKey.value) }
+    var model by remember { mutableStateOf(settings.aiModel.value) }
+    var expanded by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded },
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("API 配置", fontWeight = FontWeight.Medium)
+                    Text(
+                        if (apiKey.isNotBlank()) "已配置 · ${model}" else "未配置，点击展开",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (expanded) {
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = baseUrl,
+                    onValueChange = {
+                        baseUrl = it
+                        settings.setAiBaseUrl(it)
+                    },
+                    label = { Text("API Base URL") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(8.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = {
+                        apiKey = it
+                        settings.setAiApiKey(it)
+                    },
+                    label = { Text("API Key") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(8.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = model,
+                    onValueChange = {
+                        model = it
+                        settings.setAiModel(it)
+                    },
+                    label = { Text("模型名称") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(8.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "支持 OpenAI 兼容 API（如 DeepSeek、Moonshot 等）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
 

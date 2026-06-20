@@ -30,6 +30,10 @@ interface LifeRecordDao {
     @Query("SELECT COUNT(*) FROM life_records WHERE startTime = :startTime AND timestamp = :endTime")
     suspend fun countByTimeRange(startTime: Long, endTime: Long): Int
 
+    /** 同步获取某天的记录（用于 AI 上下文构建） */
+    @Query("SELECT * FROM life_records WHERE timestamp >= :dayStart AND timestamp < :dayEnd ORDER BY timestamp ASC")
+    suspend fun getRecordsByDaySync(dayStart: Long, dayEnd: Long): List<LifeRecord>
+
     /** 插入一条记录 */
     @Insert
     suspend fun insert(record: LifeRecord)

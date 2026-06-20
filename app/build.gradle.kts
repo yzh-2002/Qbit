@@ -108,6 +108,13 @@ dependencies {
     // JSON serialization
     implementation("com.google.code.gson:gson:2.10.1")
 
+    // OkHttp (AI API streaming)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
+
+    // Markdown rendering
+    implementation("com.github.jeziellago:compose-markdown:0.5.4")
+
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

@@ -12,11 +12,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.widget.Toast
 import com.liferecorder.data.LifeRecord
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -113,7 +115,9 @@ fun TodayScreen(viewModel: MainViewModel) {
             // 获取上条记录的结束时间
             var lastEndTime by remember { mutableStateOf<Long?>(null) }
             LaunchedEffect(Unit) {
-                lastEndTime = viewModel.getLastRecordEndTime()
+                val t = viewModel.getLastRecordEndTime()
+                android.util.Log.d("LifeRecorder", "getLastRecordEndTime() = $t (${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(t))})")
+                lastEndTime = t
             }
             lastEndTime?.let { startTime ->
                 InputDialog(
@@ -311,11 +315,20 @@ private fun InputDialog(
     onDismiss: () -> Unit,
     onConfirm: (String, Long, Long) -> Unit
 ) {
+    val context = LocalContext.current
     var text by remember { mutableStateOf("") }
     var startTime by remember { mutableStateOf(defaultStartTime) }
     var endTime by remember { mutableStateOf(defaultEndTime) }
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
+    // 根据 defaultStartTime 判断初始是否为昨天
+    var startIsYesterday by remember {
+        val todayStart = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        mutableStateOf(defaultStartTime < todayStart)
+    }
 
     val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
@@ -324,8 +337,36 @@ private fun InputDialog(
         title = { Text("记录这段时间", fontWeight = FontWeight.Bold) },
         text = {
             Column {
-                // 可点击编辑的时间段
+                // 日期标签行
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    DayToggleChip(
+                        isYesterday = startIsYesterday,
+                        onToggle = { isYesterday ->
+                            startIsYesterday = isYesterday
+                            val cal = Calendar.getInstance().apply { timeInMillis = startTime }
+                            val targetCal = Calendar.getInstance().apply {
+                                if (isYesterday) add(Calendar.DAY_OF_MONTH, -1)
+                                set(Calendar.HOUR_OF_DAY, cal.get(Calendar.HOUR_OF_DAY))
+                                set(Calendar.MINUTE, cal.get(Calendar.MINUTE))
+                                set(Calendar.SECOND, 0)
+                                set(Calendar.MILLISECOND, 0)
+                            }
+                            startTime = targetCal.timeInMillis
+                        }
+                    )
+                    DayToggleChip(
+                        isYesterday = false,
+                        onToggle = { /* 结束时间固定为今天，不可切换 */ }
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                // 时间选择行
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TimeChip(
@@ -333,16 +374,16 @@ private fun InputDialog(
                         onClick = { showStartPicker = true }
                     )
                     Text(
-                        " - ",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        "→",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     TimeChip(
                         label = timeFormat.format(Date(endTime)),
                         onClick = { showEndPicker = true }
                     )
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(20.dp))
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
@@ -355,8 +396,20 @@ private fun InputDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(text, startTime, endTime) },
-                enabled = text.isNotBlank() && startTime < endTime
+                onClick = {
+                    val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                    android.util.Log.d("LifeRecorder", "保存校验: startTime=${fmt.format(Date(startTime))}, endTime=${fmt.format(Date(endTime))}, minStartTime=${fmt.format(Date(minStartTime))}")
+                    when {
+                        startTime >= endTime ->
+                            Toast.makeText(context, "起始时间必须早于结束时间", Toast.LENGTH_SHORT).show()
+                        startTime < minStartTime ->
+                            Toast.makeText(context, "起始时间与已有记录冲突(min=${fmt.format(Date(minStartTime))})", Toast.LENGTH_SHORT).show()
+                        endTime > System.currentTimeMillis() ->
+                            Toast.makeText(context, "结束时间不能超过当前时间", Toast.LENGTH_SHORT).show()
+                        else -> onConfirm(text, startTime, endTime)
+                    }
+                },
+                enabled = text.isNotBlank()
             ) { Text("保存") }
         },
         dismissButton = {
@@ -376,17 +429,13 @@ private fun InputDialog(
             title = "选择起始时间",
             onDismiss = { showStartPicker = false },
             onConfirm = {
-                val newStart = Calendar.getInstance().apply {
-                    timeInMillis = startTime
+                startTime = Calendar.getInstance().apply {
+                    if (startIsYesterday) add(Calendar.DAY_OF_MONTH, -1)
                     set(Calendar.HOUR_OF_DAY, pickerState.hour)
                     set(Calendar.MINUTE, pickerState.minute)
                     set(Calendar.SECOND, 0)
                     set(Calendar.MILLISECOND, 0)
                 }.timeInMillis
-                // 起始时间不能早于上条记录结束时间
-                if (newStart >= minStartTime && newStart < endTime) {
-                    startTime = newStart
-                }
                 showStartPicker = false
             },
             content = { TimePicker(state = pickerState) }
@@ -405,20 +454,39 @@ private fun InputDialog(
             title = "选择结束时间",
             onDismiss = { showEndPicker = false },
             onConfirm = {
-                val newEnd = Calendar.getInstance().apply {
+                endTime = Calendar.getInstance().apply {
                     timeInMillis = endTime
                     set(Calendar.HOUR_OF_DAY, pickerState.hour)
                     set(Calendar.MINUTE, pickerState.minute)
                     set(Calendar.SECOND, 0)
                     set(Calendar.MILLISECOND, 0)
                 }.timeInMillis
-                // 结束时间必须晚于起始时间，且不能超过当前时间
-                if (newEnd > startTime && newEnd <= System.currentTimeMillis()) {
-                    endTime = newEnd
-                }
                 showEndPicker = false
             },
             content = { TimePicker(state = pickerState) }
+        )
+    }
+}
+
+@Composable
+private fun DayToggleChip(isYesterday: Boolean, onToggle: (Boolean) -> Unit) {
+    Surface(
+        onClick = { onToggle(!isYesterday) },
+        shape = RoundedCornerShape(16.dp),
+        color = if (isYesterday)
+            MaterialTheme.colorScheme.tertiaryContainer
+        else
+            MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Text(
+            text = if (isYesterday) "昨天" else "今天",
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            color = if (isYesterday)
+                MaterialTheme.colorScheme.onTertiaryContainer
+            else
+                MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -469,11 +537,24 @@ private fun EditDialog(
     onDismiss: () -> Unit,
     onConfirm: (String, Long, Long) -> Unit
 ) {
+    val context = LocalContext.current
     var text by remember { mutableStateOf(record.content) }
     var startTime by remember { mutableStateOf(record.startTime) }
     var endTime by remember { mutableStateOf(record.timestamp) }
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
+
+    // 判断起始时间是否是昨天
+    val todayStart = remember {
+        Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+    var startIsYesterday by remember { mutableStateOf(record.startTime < todayStart) }
+
+    // 判断结束时间是否是昨天
+    var endIsYesterday by remember { mutableStateOf(record.timestamp < todayStart) }
 
     val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
@@ -482,22 +563,64 @@ private fun EditDialog(
         title = { Text("编辑记录", fontWeight = FontWeight.Bold) },
         text = {
             Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // 日期标签行
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    DayToggleChip(
+                        isYesterday = startIsYesterday,
+                        onToggle = { isYesterday ->
+                            startIsYesterday = isYesterday
+                            val cal = Calendar.getInstance().apply { timeInMillis = startTime }
+                            val targetCal = Calendar.getInstance().apply {
+                                if (isYesterday) add(Calendar.DAY_OF_MONTH, -1)
+                                set(Calendar.HOUR_OF_DAY, cal.get(Calendar.HOUR_OF_DAY))
+                                set(Calendar.MINUTE, cal.get(Calendar.MINUTE))
+                                set(Calendar.SECOND, 0)
+                                set(Calendar.MILLISECOND, 0)
+                            }
+                            startTime = targetCal.timeInMillis
+                        }
+                    )
+                    DayToggleChip(
+                        isYesterday = endIsYesterday,
+                        onToggle = { isYesterday ->
+                            endIsYesterday = isYesterday
+                            val cal = Calendar.getInstance().apply { timeInMillis = endTime }
+                            val targetCal = Calendar.getInstance().apply {
+                                if (isYesterday) add(Calendar.DAY_OF_MONTH, -1)
+                                set(Calendar.HOUR_OF_DAY, cal.get(Calendar.HOUR_OF_DAY))
+                                set(Calendar.MINUTE, cal.get(Calendar.MINUTE))
+                                set(Calendar.SECOND, 0)
+                                set(Calendar.MILLISECOND, 0)
+                            }
+                            endTime = targetCal.timeInMillis
+                        }
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                // 时间选择行
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     TimeChip(
                         label = timeFormat.format(Date(startTime)),
                         onClick = { showStartPicker = true }
                     )
                     Text(
-                        " - ",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        "→",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     TimeChip(
                         label = timeFormat.format(Date(endTime)),
                         onClick = { showEndPicker = true }
                     )
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(20.dp))
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
@@ -510,8 +633,18 @@ private fun EditDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(text, startTime, endTime) },
-                enabled = text.isNotBlank() && startTime < endTime
+                onClick = {
+                    when {
+                        startTime >= endTime ->
+                            Toast.makeText(context, "起始时间必须早于结束时间", Toast.LENGTH_SHORT).show()
+                        startTime < minStartTime ->
+                            Toast.makeText(context, "起始时间与前一条记录冲突", Toast.LENGTH_SHORT).show()
+                        endTime > maxEndTime ->
+                            Toast.makeText(context, "结束时间与后一条记录冲突", Toast.LENGTH_SHORT).show()
+                        else -> onConfirm(text, startTime, endTime)
+                    }
+                },
+                enabled = text.isNotBlank()
             ) { Text("保存") }
         },
         dismissButton = {
@@ -530,16 +663,13 @@ private fun EditDialog(
             title = "选择起始时间",
             onDismiss = { showStartPicker = false },
             onConfirm = {
-                val newStart = Calendar.getInstance().apply {
-                    timeInMillis = startTime
+                startTime = Calendar.getInstance().apply {
+                    if (startIsYesterday) add(Calendar.DAY_OF_MONTH, -1)
                     set(Calendar.HOUR_OF_DAY, pickerState.hour)
                     set(Calendar.MINUTE, pickerState.minute)
                     set(Calendar.SECOND, 0)
                     set(Calendar.MILLISECOND, 0)
                 }.timeInMillis
-                if (newStart >= minStartTime && newStart < endTime) {
-                    startTime = newStart
-                }
                 showStartPicker = false
             },
             content = { TimePicker(state = pickerState) }
@@ -557,16 +687,13 @@ private fun EditDialog(
             title = "选择结束时间",
             onDismiss = { showEndPicker = false },
             onConfirm = {
-                val newEnd = Calendar.getInstance().apply {
-                    timeInMillis = endTime
+                endTime = Calendar.getInstance().apply {
+                    if (endIsYesterday) add(Calendar.DAY_OF_MONTH, -1)
                     set(Calendar.HOUR_OF_DAY, pickerState.hour)
                     set(Calendar.MINUTE, pickerState.minute)
                     set(Calendar.SECOND, 0)
                     set(Calendar.MILLISECOND, 0)
                 }.timeInMillis
-                if (newEnd > startTime && newEnd <= maxEndTime) {
-                    endTime = newEnd
-                }
                 showEndPicker = false
             },
             content = { TimePicker(state = pickerState) }

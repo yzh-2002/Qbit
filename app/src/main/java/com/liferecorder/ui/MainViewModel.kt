@@ -34,18 +34,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openInputDialog() { _showInputDialog.value = true }
     fun closeInputDialog() { _showInputDialog.value = false }
 
-    /** 获取上条记录的结束时间（即本条记录的起始时间），没有则返回今天 00:00 */
+    /** 获取昨天+今天范围内最新记录的结束时间，没有则返回今天 00:00 */
     suspend fun getLastRecordEndTime(): Long {
-        val (start, end) = todayRange()
-        val latest = recordDao.getLatestRecordOfDay(start, end)
-        return latest?.timestamp ?: start
+        val todayStart = todayRange().first
+        val yesterdayStart = todayStart - 24 * 60 * 60 * 1000L
+        val tomorrowStart = todayStart + 24 * 60 * 60 * 1000L
+        val latest = recordDao.getLatestRecordOfDay(yesterdayStart, tomorrowStart)
+        return latest?.timestamp ?: todayStart
     }
 
     fun addRecord(content: String, startTime: Long, endTime: Long) {
         if (content.isBlank()) return
         viewModelScope.launch {
-            val timeFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-            val hourLabel = "${timeFormat.format(Date(startTime))} - ${timeFormat.format(Date(endTime))}"
+            val hourLabel = buildHourLabel(startTime, endTime)
             recordDao.insert(LifeRecord(
                 content = content.trim(),
                 timestamp = endTime,
@@ -61,8 +62,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val startTime = newStartTime ?: record.startTime
             val endTime = newEndTime ?: record.timestamp
-            val timeFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-            val hourLabel = "${timeFormat.format(Date(startTime))} - ${timeFormat.format(Date(endTime))}"
+            val hourLabel = buildHourLabel(startTime, endTime)
             recordDao.update(record.copy(
                 content = newContent.trim(),
                 startTime = startTime,
@@ -139,10 +139,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         cal.add(Calendar.MONTH, 1)
         val monthEnd = cal.timeInMillis
 
-        val timestamps = recordDao.getTimestampsInRange(monthStart, monthEnd)
-        val days = timestamps.map { ts ->
-            Calendar.getInstance().apply { timeInMillis = ts }.get(Calendar.DAY_OF_MONTH)
-        }.toSet()
+        // 获取与本月有交集的所有记录，计算涉及哪些天
+        val records = recordDao.getRecordsInRange(monthStart, monthEnd)
+        val days = mutableSetOf<Int>()
+        for (record in records) {
+            // 记录跨越的每一天都标记
+            val startCal = Calendar.getInstance().apply { timeInMillis = maxOf(record.startTime, monthStart) }
+            val endCal = Calendar.getInstance().apply { timeInMillis = minOf(record.timestamp, monthEnd - 1) }
+            while (!startCal.after(endCal)) {
+                days.add(startCal.get(Calendar.DAY_OF_MONTH))
+                startCal.add(Calendar.DAY_OF_MONTH, 1)
+                startCal.set(Calendar.HOUR_OF_DAY, 0)
+                startCal.set(Calendar.MINUTE, 0)
+                startCal.set(Calendar.SECOND, 0)
+            }
+        }
         _daysWithRecords.value = days
     }
 
@@ -342,5 +353,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val start = cal.timeInMillis
         cal.add(Calendar.DAY_OF_MONTH, 1)
         return start to cal.timeInMillis
+    }
+
+    /** 生成时间段标签，跨天时带日期前缀 */
+    private fun buildHourLabel(startTime: Long, endTime: Long): String {
+        val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+        val dateTimeFormat = SimpleDateFormat("M/d HH:mm", Locale.getDefault())
+
+        val startCal = Calendar.getInstance().apply { timeInMillis = startTime }
+        val endCal = Calendar.getInstance().apply { timeInMillis = endTime }
+
+        val sameDay = startCal.get(Calendar.YEAR) == endCal.get(Calendar.YEAR) &&
+                startCal.get(Calendar.DAY_OF_YEAR) == endCal.get(Calendar.DAY_OF_YEAR)
+
+        return if (sameDay) {
+            "${timeFormat.format(Date(startTime))} - ${timeFormat.format(Date(endTime))}"
+        } else {
+            "${dateTimeFormat.format(Date(startTime))} - ${dateTimeFormat.format(Date(endTime))}"
+        }
     }
 }
